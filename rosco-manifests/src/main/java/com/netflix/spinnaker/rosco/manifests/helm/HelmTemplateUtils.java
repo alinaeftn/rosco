@@ -1,6 +1,7 @@
 package com.netflix.spinnaker.rosco.manifests.helm;
 
 import com.netflix.spinnaker.kork.artifacts.model.Artifact;
+import com.netflix.spinnaker.rosco.api.VaultConfig;
 import com.netflix.spinnaker.rosco.jobs.BakeRecipe;
 import com.netflix.spinnaker.rosco.manifests.ArtifactDownloader;
 import com.netflix.spinnaker.rosco.manifests.BakeManifestEnvironment;
@@ -14,6 +15,8 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
+import org.springframework.vault.core.VaultTemplate;
+import org.springframework.vault.support.VaultResponse;
 
 @Component
 public class HelmTemplateUtils {
@@ -29,6 +32,9 @@ public class HelmTemplateUtils {
 
   public BakeRecipe buildBakeRecipe(BakeManifestEnvironment env, HelmBakeManifestRequest request) {
     BakeRecipe result = new BakeRecipe();
+    VaultConfig vaultConfig = new VaultConfig();
+    VaultTemplate vaultTemplate =
+        new VaultTemplate(vaultConfig.vaultEndpoint(), vaultConfig.clientAuthentication());
     result.setName(request.getOutputName());
 
     Path templatePath;
@@ -67,6 +73,24 @@ public class HelmTemplateUtils {
       List<String> overrideList = new ArrayList<>();
       for (Map.Entry<String, Object> entry : overrides.entrySet()) {
         overrideList.add(entry.getKey() + "=" + entry.getValue().toString());
+
+        /* Check if the entry is a secret */
+        String secret = entry.getValue().toString();
+        if (secret.contains("vault://")) {
+          VaultResponse response =
+              vaultTemplate.read(
+                  secret.substring(secret.indexOf('/') + 2, secret.lastIndexOf('/')));
+          if (response != null) {
+            System.out.println(
+                "Response keys: "
+                    + response.getData().keySet()
+                    + " values: "
+                    + response.getData().values());
+            System.out.println(
+                "Value is "
+                    + response.getData().get(secret.substring(secret.lastIndexOf('/') + 1)));
+          }
+        }
       }
       String overrideOption = request.isRawOverrides() ? "--set" : "--set-string";
       command.add(overrideOption);
